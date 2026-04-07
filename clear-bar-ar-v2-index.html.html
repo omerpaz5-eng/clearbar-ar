@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Clear-Bar AR | אל-סראג</title>
+
+  <!-- Three.js — loaded first, synchronously, required before any script runs -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
+
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: #0f172a;
+      color: #fff;
+      font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      overflow: hidden;
+      height: 100dvh;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ═══ LAUNCH ═══════════════════════════════ */
+    #launch {
+      height: 100dvh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px; padding: 40px 28px; text-align: center;
+    }
+    .brand { font-size: 12px; letter-spacing: 3px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+    .hero-icon { font-size: 72px; line-height: 1; }
+    .title { font-size: 28px; font-weight: 800; line-height: 1.35; }
+    .subtitle { font-size: 15px; color: #94a3b8; line-height: 1.7; max-width: 300px; }
+
+    #start-btn {
+      background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+      color: #fff; border: none; padding: 18px 56px;
+      border-radius: 100px; font-size: 18px; font-weight: 700;
+      cursor: pointer; box-shadow: 0 8px 30px rgba(59,130,246,.50);
+      transition: transform .1s; margin-top: 8px;
+    }
+    #start-btn:active { transform: scale(.97); }
+
+    /* Notice shown on iOS (no WebXR) */
+    #ios-notice {
+      background: rgba(251,191,36,.12);
+      border: 1px solid rgba(251,191,36,.30);
+      border-radius: 14px; padding: 14px 18px;
+      font-size: 13px; color: #fbbf24; line-height: 1.65;
+      max-width: 320px; display: none; text-align: right;
+    }
+    .hint { font-size: 13px; color: #475569; }
+
+    /* ═══ LOADING SPINNER ═══════════════════════ */
+    #loading {
+      display: none; position: fixed; inset: 0;
+      background: #0f172a;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; z-index: 200;
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid rgba(255,255,255,.15);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ═══ WEBXR DOM OVERLAY ═════════════════════
+       This div is passed to the browser as the DOM overlay
+       for immersive-ar sessions. All UI inside shows on top
+       of the live camera feed automatically.
+    ══════════════════════════════════════════════ */
+    #xr-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 100;
+    }
+    #xr-overlay.active { display: block; }
+
+    /* top instruction */
+    #xr-top {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: 16px 20px;
+      padding-top: max(16px, env(safe-area-inset-top));
+      background: linear-gradient(to bottom, rgba(0,0,0,.72), transparent);
+      text-align: center;
+      pointer-events: none;
+    }
+    #xr-instruction {
+      font-size: 14px; color: #e2e8f0; line-height: 1.55;
+    }
+
+    /* reticle hint (shown until first tap) */
+    #reticle-hint {
+      position: absolute;
+      bottom: 160px; left: 50%; transform: translateX(-50%);
+      background: rgba(59,130,246,.85);
+      color: #fff; font-size: 14px; font-weight: 600;
+      padding: 10px 24px; border-radius: 100px;
+      white-space: nowrap; pointer-events: none;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: translateX(-50%) scale(1); }
+      50%      { opacity: .75; transform: translateX(-50%) scale(.97); }
+    }
+
+    /* size controls */
+    #xr-size {
+      position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%);
+      display: flex; flex-direction: column; gap: 6px;
+      pointer-events: auto;
+    }
+    .sz-btn {
+      background: rgba(0,0,0,.65);
+      border: 1px solid rgba(255,255,255,.25);
+      color: #fff; width: 46px; height: 46px;
+      border-radius: 13px; font-size: 22px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    }
+    .sz-btn:active { background: rgba(59,130,246,.55); }
+    #sz-label {
+      background: rgba(0,0,0,.60);
+      border: 1px solid rgba(255,255,255,.18);
+      color: #cbd5e1; width: 46px; height: 38px;
+      border-radius: 11px; font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; line-height: 1.3;
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    }
+
+    /* bottom CTA */
+    #xr-cta {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 14px 16px;
+      padding-bottom: max(22px, env(safe-area-inset-bottom));
+      background: linear-gradient(to top, rgba(0,0,0,.82), transparent);
+      display: flex; gap: 10px; pointer-events: auto;
+    }
+    .cta-wa {
+      flex: 1;
+      background: #16a34a; border: none; color: #fff;
+      padding: 16px 20px; border-radius: 16px;
+      font-size: 17px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      gap: 9px; cursor: pointer;
+      box-shadow: 0 4px 24px rgba(22,163,74,.42);
+    }
+    .cta-wa:active { transform: scale(.98); }
+    .cta-reset {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.22);
+      color: #fff; padding: 16px 16px;
+      border-radius: 16px; font-size: 13px;
+      cursor: pointer; white-space: nowrap;
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    }
+
+    /* ═══ FALLBACK (iOS / unsupported) ══════════
+       Camera feed + 2D canvas overlay + 4-corner drag
+    ══════════════════════════════════════════════ */
+    #fallback {
+      display: none; position: fixed; inset: 0;
+    }
+    #fb-video {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover; background: #000;
+    }
+    #fb-canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; touch-action: none;
+    }
+
+    /* 4 corner handles */
+    .handle {
+      position: absolute; width: 58px; height: 58px;
+      transform: translate(-50%,-50%); touch-action: none; z-index: 10;
+    }
+    .handle::before {
+      content:''; position:absolute; inset:0;
+      border-radius:50%; background:rgba(59,130,246,.18);
+    }
+    .handle::after {
+      content:''; position:absolute; inset:11px;
+      border-radius:50%; background:#fff;
+      border:3px solid #3b82f6;
+      box-shadow: 0 2px 12px rgba(0,0,0,.55), 0 0 0 5px rgba(59,130,246,.28);
+    }
+
+    /* top bar */
+    #fb-top {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: 12px 14px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      background: linear-gradient(to bottom, rgba(0,0,0,.72), transparent);
+      display: flex; align-items: center; gap: 10px; z-index: 20;
+    }
+    #fb-top span {
+      flex: 1; font-size: 13px; color: #e2e8f0; text-align: center;
+    }
+    .icon-btn {
+      background: rgba(255,255,255,.16);
+      border: 1px solid rgba(255,255,255,.20);
+      color: #fff; width: 42px; height: 42px;
+      border-radius: 50%; font-size: 17px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      flex-shrink: 0;
+    }
+
+    /* bar count adjuster */
+    #bar-adj {
+      position: absolute; right: 12px; top: 50%;
+      transform: translateY(-50%);
+      display: flex; flex-direction: column; align-items: center;
+      gap: 6px; z-index: 20;
+    }
+    .bar-btn {
+      background: rgba(0,0,0,.65);
+      border: 1px solid rgba(255,255,255,.25);
+      color: #fff; width: 44px; height: 44px;
+      border-radius: 12px; font-size: 22px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #bar-label {
+      background: rgba(0,0,0,.60);
+      border: 1px solid rgba(255,255,255,.18);
+      color: #e2e8f0; width: 44px; height: 38px;
+      border-radius: 10px; font-size: 14px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* bottom CTA (fallback) */
+    #fb-cta {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 14px 16px;
+      padding-bottom: max(22px, env(safe-area-inset-bottom));
+      background: linear-gradient(to top, rgba(0,0,0,.82), transparent);
+      display: flex; gap: 10px; z-index: 20;
+    }
+
+    /* toast */
+    #toast {
+      position: absolute; bottom: 120px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.80);
+      color: #fff; padding: 12px 24px;
+      border-radius: 100px; font-size: 14px;
+      white-space: nowrap; z-index: 30;
+      opacity: 0; transition: opacity .3s;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+
+    /* ═══ ERROR ═══════════════════════════════ */
+    #err {
+      display: none; position: fixed; inset: 0;
+      background: #0f172a; z-index: 300;
+      flex-direction: column; align-items: center;
+      justify-content: center; text-align: center;
+      padding: 40px 28px; gap: 20px;
+    }
+    #err h2 { font-size: 22px; font-weight: 700; }
+    #err p  { color: #94a3b8; font-size: 15px; line-height: 1.75; }
+    #err button {
+      background: #2563eb; color: #fff; border: none;
+      padding: 14px 44px; border-radius: 100px;
+      font-size: 16px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════ LAUNCH ══════════════════════════════ -->
+<div id="launch">
+  <p class="brand">Al-Sorag · Clear-Bar</p>
+  <div class="hero-icon">🪟</div>
+  <h1 class="title">ראו איך Clear-Bar<br>נראה על החלון שלכם</h1>
+  <p class="subtitle">
+    כוונו לחלון, לחצו עליו — הסורג מוצמד בחלל<br>
+    וישאר במקומו גם כשזזים
+  </p>
+  <button id="start-btn">הפעל AR ←</button>
+  <div id="ios-notice">
+    ℹ️ AR תלת-ממדי מלא (מודל שנשאר במקומו) זמין ב-Android Chrome בלבד.<br>
+    ב-iOS תוצג תצוגה ידנית — גרירת פינות על החלון.
+  </div>
+  <p class="hint">הדפדפן יבקש גישה למצלמה</p>
+</div>
+
+<!-- ══════ LOADING ════════════════════════════ -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p style="color:#94a3b8;font-size:14px">טוען AR…</p>
+</div>
+
+<!-- ══════ WEBXR DOM OVERLAY ═════════════════
+     Passed to requestSession as domOverlay.root.
+     Browser composites this over the XR camera feed.
+═══════════════════════════════════════════════ -->
+<div id="xr-overlay">
+  <div id="xr-top">
+    <div id="xr-instruction">כוונו לכיוון החלון ולחצו עליו להצמיד את הסורג</div>
+  </div>
+
+  <div id="reticle-hint">לחצו על החלון להצמיד →</div>
+
+  <!-- + / − size controls -->
+  <div id="xr-size">
+    <button class="sz-btn" id="sz-up">+</button>
+    <div id="sz-label">גודל</div>
+    <button class="sz-btn" id="sz-dn">−</button>
+  </div>
+
+  <div id="xr-cta">
+    <button class="cta-reset" id="xr-reset">↺ הזזה מחדש</button>
+    <button class="cta-wa" id="wa-xr">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      בקש הצעת מחיר
+    </button>
+  </div>
+</div>
+
+<!-- ══════ FALLBACK (iOS / no WebXR) ══════════ -->
+<div id="fallback">
+  <video id="fb-video" autoplay playsinline muted></video>
+  <canvas id="fb-canvas"></canvas>
+
+  <!-- 4 corner handles -->
+  <div class="handle" id="h0"></div>
+  <div class="handle" id="h1"></div>
+  <div class="handle" id="h2"></div>
+  <div class="handle" id="h3"></div>
+
+  <div id="fb-top">
+    <button class="icon-btn" id="fb-detect" title="זיהוי אוטומטי">🔍</button>
+    <span>גרור נקודות לפינות החלון</span>
+    <button class="icon-btn" id="fb-reset" title="אפס מיקום">↺</button>
+  </div>
+
+  <div id="bar-adj">
+    <button class="bar-btn" id="bars-up">+</button>
+    <div id="bar-label">10</div>
+    <button class="bar-btn" id="bars-dn">−</button>
+  </div>
+
+  <div id="fb-cta">
+    <button class="cta-wa" id="wa-fb">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      בקש הצעת מחיר
+    </button>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<!-- ══════ ERROR ═══════════════════════════════ -->
+<div id="err">
+  <div style="font-size:52px">📷</div>
+  <h2>אין גישה למצלמה</h2>
+  <p>אשרו גישה למצלמה בדפדפן.<br>ודאו שהאתר פועל ב-HTTPS.</p>
+  <button onclick="location.reload()">נסה שוב</button>
+</div>
+
+
+<script>
+/* ══════════════════════════════════════════════════
+   Clear-Bar AR  v2  —  Al-Sorag
+
+   Android Chrome + ARCore → WebXR mode
+     • 3D model built with Three.js
+     • Hit-test: reticle follows detected surfaces
+     • Tap  → model anchored in real-world 3D space
+     • Model stays fixed as the camera moves
+
+   iOS / unsupported browsers → Fallback overlay
+     • Live camera feed
+     • 2D canvas bars with perspective warp
+     • 4 draggable corner handles
+══════════════════════════════════════════════════ */
+(function () {
+'use strict';
+
+/* ─── CONFIG ───────────────────────────────────── */
+var WA_NUMBER = '972508923666';
+var WA_TEXT   = encodeURIComponent(
+  'שלום! ראיתי את Clear-Bar על החלון שלי באתר של אל-סראג ואשמח לקבל הצעת מחיר 🙂'
+);
+
+/* Product real-world dimensions (metres) */
+var MODEL_W  = 1.00;   /* width  default 1 m           */
+var MODEL_H  = 1.40;   /* height default 1.4 m          */
+var BAR_H    = 0.050;  /* 5 cm polycarbonate bar        */
+var GAP_H    = 0.090;  /* 9 cm gap between bars         */
+var BAR_D    = 0.008;  /* 8 mm bar depth                */
+var RAIL_W   = 0.040;  /* 4 cm white aluminium rail     */
+
+/* 2-D overlay proportions */
+var BAR_FRAC = 5 / 14; /* bar fraction per 14 cm unit   */
+
+/* ─── DOM ──────────────────────────────────────── */
+var $ = function(id){ return document.getElementById(id); };
+var launch    = $('launch');
+var loading   = $('loading');
+var xrOverlay = $('xr-overlay');
+var fallback  = $('fallback');
+var errDiv    = $('err');
+
+/* ─── PLATFORM ─────────────────────────────────── */
+var isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
+var hasXR = !isIOS && !!navigator.xr;
+
+if (isIOS) { $('ios-notice').style.display = 'block'; }
+
+/* ─── LAUNCH ────────────────────────────────────── */
+$('start-btn').addEventListener('click', function() {
+  if (hasXR) {
+    navigator.xr.isSessionSupported('immersive-ar').then(function(ok) {
+      if (ok) { showLoading(); startXR(); }
+      else    { startFallback(); }
+    }).catch(startFallback);
+  } else {
+    startFallback();
+  }
+});
+
+function showLoading() {
+  launch.style.display  = 'none';
+  loading.style.display = 'flex';
+}
+function hideLoading() {
+  loading.style.display = 'none';
+}
+
+/* ══════════════════════════════════════════════════
+   ██  WEBXR MODE  (Android Chrome + ARCore)
+══════════════════════════════════════════════════ */
+var renderer, scene, camera;
+var reticle, clearBarGroup;
+var hitTestSource       = null;
+var hitTestRequested    = false;
+var modelPlaced         = false;
+var lastHitMatrix       = null;
+var modelScale          = 1.0;
+var xrSession           = null;
+
+function startXR() {
+  navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures : ['hit-test'],
+    optionalFeatures : ['dom-overlay', 'plane-detection'],
+    domOverlay       : { root: xrOverlay }
+  })
+  .then(function(session) {
+    xrSession = session;
+    hideLoading();
+    xrOverlay.classList.add('active');
+    initThreeJS(session);
+  })
+  .catch(function(e) {
+    console.warn('XR session failed:', e);
+    hideLoading();
+    startFallback();
+  });
+}
+
+function initThreeJS(session) {
+  /* ── renderer ── */
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  /* Render canvas sits below the DOM overlay (z-index 50) */
+  Object.assign(renderer.domElement.style, {
+    position: 'fixed', top: '0', left: '0',
+    width: '100%', height: '100%', zIndex: '50'
+  });
+  document.body.appendChild(renderer.domElement);
+
+  /* ── scene ── */
+  scene  = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+  /* ── lighting — bright ambient so polycarbonate reads clearly ── */
+  scene.add(new THREE.AmbientLight(0xffffff, 1.8));
+  var sun = new THREE.DirectionalLight(0xffffff, 1.0);
+  sun.position.set(2, 5, 3);
+  scene.add(sun);
+  /* Subtle fill light from below (bounced light) */
+  var fill = new THREE.DirectionalLight(0xd0e8ff, 0.4);
+  fill.position.set(-1, -2, 1);
+  scene.add(fill);
+
+  /* ── reticle — ring that follows detected surfaces ── */
+  reticle = buildReticle();
+  scene.add(reticle);
+
+  /* ── Clear-Bar 3D model ── */
+  clearBarGroup = buildClearBarModel(MODEL_W, MODEL_H);
+  clearBarGroup.visible = false;
+  scene.add(clearBarGroup);
+
+  /* ── XR controller (handles tap/select) ── */
+  var ctrl = renderer.xr.getController(0);
+  ctrl.addEventListener('select', onXRTap);
+  scene.add(ctrl);
+
+  /* ── set session and start render loop ── */
+  renderer.xr.setSession(session).then(function() {
+    renderer.setAnimationLoop(onXRFrame);
+  });
+
+  session.addEventListener('end', onXREnd);
+}
+
+/* ─── XR FRAME LOOP ────────────────────────────── */
+function onXRFrame(timestamp, frame) {
+  if (!frame) return;
+
+  var session  = renderer.xr.getSession();
+  var refSpace = renderer.xr.getReferenceSpace();
+
+  /* Request hit-test source on first frame (needs active session) */
+  if (!hitTestRequested && !hitTestSource) {
+    hitTestRequested = true;
+    session.requestReferenceSpace('viewer').then(function(viewerSpace) {
+      session.requestHitTestSource({ space: viewerSpace }).then(function(src) {
+        hitTestSource = src;
+      });
+    });
+    session.addEventListener('end', function() {
+      hitTestSource    = null;
+      hitTestRequested = false;
+    });
+  }
+
+  /* Move reticle to current hit-test result */
+  if (hitTestSource && !modelPlaced) {
+    var hits = frame.getHitTestResults(hitTestSource);
+    if (hits.length > 0) {
+      var pose = hits[0].getPose(refSpace);
+      reticle.visible = true;
+      reticle.matrix.fromArray(pose.transform.matrix);
+      lastHitMatrix   = pose.transform.matrix.slice(); /* store for placement */
+    } else {
+      reticle.visible = false;
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+/* ─── USER TAPS → PLACE MODEL ──────────────────── */
+function onXRTap() {
+  if (modelPlaced || !reticle.visible || !lastHitMatrix) return;
+
+  /* Extract position from the hit matrix (column-major, translation at [12-14]) */
+  var pos = new THREE.Vector3(lastHitMatrix[12], lastHitMatrix[13], lastHitMatrix[14]);
+
+  /* Make model stand upright and face the camera */
+  var xrCam = renderer.xr.getCamera();
+  var camPos = new THREE.Vector3();
+  xrCam.getWorldPosition(camPos);
+
+  var fwd = new THREE.Vector3().subVectors(camPos, pos);
+  fwd.y = 0; /* keep Y-up */
+  fwd.normalize();
+
+  clearBarGroup.position.copy(pos);
+  clearBarGroup.rotation.set(0, Math.atan2(fwd.x, fwd.z), 0);
+  clearBarGroup.scale.setScalar(modelScale);
+  clearBarGroup.visible = true;
+
+  reticle.visible   = false;
+  modelPlaced       = true;
+  $('reticle-hint').style.display = 'none';
+  $('xr-instruction').textContent = 'הסורג מוצמד! זזו סביב לראות אותו בזווית שלכם';
+}
+
+/* ─── RESET MODEL ──────────────────────────────── */
+function resetXR() {
+  modelPlaced             = false;
+  clearBarGroup.visible   = false;
+  reticle.visible         = false;
+  lastHitMatrix           = null;
+  hitTestSource           = null;
+  hitTestRequested        = false;
+  $('reticle-hint').style.display   = 'block';
+  $('xr-instruction').textContent   = 'כוונו לכיוון החלון ולחצו עליו להצמיד את הסורג';
+}
+
+/* ─── SCALE ────────────────────────────────────── */
+function scaleModel(factor) {
+  modelScale = Math.max(0.25, Math.min(4.0, modelScale * factor));
+  if (clearBarGroup) clearBarGroup.scale.setScalar(modelScale);
+}
+
+/* ─── XR SESSION END ────────────────────────────── */
+function onXREnd() {
+  renderer.setAnimationLoop(null);
+  if (renderer.domElement.parentNode)
+    renderer.domElement.parentNode.removeChild(renderer.domElement);
+  xrOverlay.classList.remove('active');
+}
+
+/* XR UI buttons */
+$('xr-reset').addEventListener('click', resetXR);
+$('sz-up').addEventListener('click', function(){ scaleModel(1.18); });
+$('sz-dn').addEventListener('click', function(){ scaleModel(0.85); });
+$('wa-xr').addEventListener('click', openWA);
+
+
+/* ══════════════════════════════════════════════════
+   ██  CLEAR-BAR 3D MODEL BUILDER
+
+   Procedural Three.js geometry — no external file.
+   Dimensions match the real product spec:
+     • Horizontal polycarbonate bars  5 cm × 8 mm
+     • Gap between bars: 9 cm
+     • White aluminium side rails: 4 cm wide
+══════════════════════════════════════════════════ */
+function buildClearBarModel(W, H) {
+  var group = new THREE.Group();
+
+  /* Polycarbonate — transparent with a cool blue tint */
+  var barMat = new THREE.MeshPhysicalMaterial({
+    color      : new THREE.Color(0.78, 0.88, 0.96),
+    transparent: true,
+    opacity    : 0.40,
+    roughness  : 0.04,
+    metalness  : 0.00,
+    side       : THREE.DoubleSide,
+    depthWrite : false,   /* avoid z-fighting with transparent geo */
+  });
+
+  /* White anodised aluminium rail */
+  var railMat = new THREE.MeshStandardMaterial({
+    color    : 0xffffff,
+    roughness: 0.20,
+    metalness: 0.55,
+  });
+
+  /* ── horizontal bars ── */
+  var usableW = W - RAIL_W * 2;
+  var y = H / 2 - BAR_H / 2;
+  while (y > -H / 2 + BAR_H / 2) {
+    var bar = new THREE.Mesh(
+      new THREE.BoxGeometry(usableW, BAR_H, BAR_D),
+      barMat
+    );
+    bar.position.set(0, y, 0);
+    group.add(bar);
+    y -= (BAR_H + GAP_H);
+  }
+
+  /* ── left rail ── */
+  var lRail = new THREE.Mesh(
+    new THREE.BoxGeometry(RAIL_W, H, BAR_D + 0.004),
+    railMat
+  );
+  lRail.position.set(-W / 2 + RAIL_W / 2, 0, 0);
+  group.add(lRail);
+
+  /* ── right rail ── */
+  var rRail = new THREE.Mesh(
+    new THREE.BoxGeometry(RAIL_W, H, BAR_D + 0.004),
+    railMat
+  );
+  rRail.position.set(W / 2 - RAIL_W / 2, 0, 0);
+  group.add(rRail);
+
+  return group;
+}
+
+/* Placement reticle — blue ring on detected surface */
+function buildReticle() {
+  /* Ring lies in XZ plane so it appears flat on any detected surface */
+  var geo = new THREE.RingGeometry(0.10, 0.14, 36)
+    .rotateX(-Math.PI / 2);
+  var mat = new THREE.MeshBasicMaterial({
+    color: 0x3b82f6,
+    side : THREE.DoubleSide,
+  });
+  var mesh = new THREE.Mesh(geo, mat);
+  mesh.matrixAutoUpdate = false;
+  mesh.visible          = false;
+
+  /* Animated pulsing ring around the main ring */
+  var outerGeo = new THREE.RingGeometry(0.15, 0.165, 36)
+    .rotateX(-Math.PI / 2);
+  var outerMat = new THREE.MeshBasicMaterial({
+    color      : 0x93c5fd,
+    transparent: true,
+    opacity    : 0.55,
+    side       : THREE.DoubleSide,
+  });
+  mesh.add(new THREE.Mesh(outerGeo, outerMat));
+
+  return mesh;
+}
+
+
+/* ══════════════════════════════════════════════════
+   ██  FALLBACK MODE  (iOS / unsupported browsers)
+
+   • getUserMedia camera feed (video element)
+   • Canvas 2D overlay drawn on top
+   • 4 draggable corner handles define the window quad
+   • Bars drawn using bilinear edge interpolation
+   • Brightness-based auto-detect for initial placement
+══════════════════════════════════════════════════ */
+var fbVideo  = $('fb-video');
+var fbCanvas = $('fb-canvas');
+var fbCtx    = fbCanvas.getContext('2d');
+var handles  = [0,1,2,3].map(function(i){ return $('h'+i); });
+var corners  = [];
+var numBars  = 10;
+var activeH  = -1;
+
+/* Visual style — matches real product photos */
+var S = {
+  barFill : 'rgba(195,222,242,0.34)',
+  barGloss: 'rgba(255,255,255,0.55)',
+  barShad : 'rgba(120,160,200,0.25)',
+  railFill: 'rgba(255,255,255,0.95)',
+  railEdge: 'rgba(180,195,210,0.50)',
+  railFrac:  0.032,
+  quadLine: 'rgba(255,255,255,0.28)',
+};
+
+function startFallback() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showErr(); return;
+  }
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } }, audio: false
+  }).then(function(stream) {
+    fbVideo.srcObject = stream;
+    fbVideo.addEventListener('loadedmetadata', function() {
+      fbVideo.play();
+      launch.style.display   = 'none';
+      loading.style.display  = 'none';
+      fallback.style.display = 'block';
+      fbResize();
+      fbResetCorners();
+      requestAnimationFrame(fbLoop);
+    });
+  }).catch(function(){ hideLoading(); showErr(); });
+}
+
+function fbResize() {
+  fbCanvas.width  = window.innerWidth;
+  fbCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', function() {
+  if (fallback.style.display !== 'none') { fbResize(); fbResetCorners(); }
+});
+
+/* ─── CORNERS ───────────────────────────────────── */
+function fbResetCorners() {
+  var W = fbCanvas.width, H = fbCanvas.height;
+  var px = W * 0.14, py = H * 0.17;
+  corners = [
+    { x: px,     y: py     },   /* TL */
+    { x: W - px, y: py     },   /* TR */
+    { x: W - px, y: H - py },   /* BR */
+    { x: px,     y: H - py },   /* BL */
+  ];
+  fbSyncHandles();
+}
+
+function fbSyncHandles() {
+  handles.forEach(function(h, i) {
+    h.style.left = corners[i].x + 'px';
+    h.style.top  = corners[i].y + 'px';
+  });
+}
+
+/* ─── POINTER DRAG ─────────────────────────────── */
+handles.forEach(function(h, i) {
+  h.addEventListener('pointerdown', function(e) {
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    activeH = i;
+  });
+  h.addEventListener('pointermove', function(e) {
+    if (activeH !== i) return;
+    var r = fbCanvas.getBoundingClientRect();
+    corners[i].x = clamp(e.clientX - r.left, 0, fbCanvas.width);
+    corners[i].y = clamp(e.clientY - r.top,  0, fbCanvas.height);
+    fbSyncHandles();
+  });
+  h.addEventListener('pointerup',     function() { activeH = -1; });
+  h.addEventListener('pointercancel', function() { activeH = -1; });
+});
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+/* ─── AUTO-DETECT WINDOW (brightness search) ────── */
+function fbAutoDetect() {
+  var W = 64, H = 64;
+  var off = document.createElement('canvas');
+  off.width = W; off.height = H;
+  var oc = off.getContext('2d');
+  oc.drawImage(fbVideo, 0, 0, W, H);
+  var px = oc.getImageData(0, 0, W, H).data;
+
+  /* Luminance map */
+  var br = new Float32Array(W * H);
+  for (var i = 0; i < W * H; i++)
+    br[i] = (px[i*4]*299 + px[i*4+1]*587 + px[i*4+2]*114) / 1000;
+
+  /* Integral image for O(1) rectangle sums */
+  var ii = new Float32Array((W+1) * (H+1));
+  for (var y = 1; y <= H; y++)
+    for (var x = 1; x <= W; x++)
+      ii[y*(W+1)+x] = br[(y-1)*W+(x-1)]
+        + ii[(y-1)*(W+1)+x] + ii[y*(W+1)+(x-1)] - ii[(y-1)*(W+1)+(x-1)];
+
+  function rectAvg(x1,y1,x2,y2) {
+    var a = (x2-x1)*(y2-y1);
+    return a <= 0 ? 0 :
+      (ii[y2*(W+1)+x2] - ii[y1*(W+1)+x2]
+     - ii[y2*(W+1)+x1] + ii[y1*(W+1)+x1]) / a;
+  }
+
+  /* Find brightest rectangle (sampled grid) */
+  var best = -1, bx1=0, by1=0, bx2=W, by2=H;
+  var minS = 12, step = 4;
+  for (var y1=0; y1<H-minS; y1+=step)
+    for (var y2=y1+minS; y2<=H; y2+=step)
+      for (var x1=0; x1<W-minS; x1+=step)
+        for (var x2=x1+minS; x2<=W; x2+=step) {
+          var avg = rectAvg(x1,y1,x2,y2);
+          if (avg > best) { best=avg; bx1=x1; by1=y1; bx2=x2; by2=y2; }
+        }
+
+  /* Map back to canvas coordinates */
+  var sx = fbCanvas.width/W, sy = fbCanvas.height/H, pad = 4;
+  corners = [
+    { x:(bx1+pad)*sx, y:(by1+pad)*sy },
+    { x:(bx2-pad)*sx, y:(by1+pad)*sy },
+    { x:(bx2-pad)*sx, y:(by2-pad)*sy },
+    { x:(bx1+pad)*sx, y:(by2-pad)*sy },
+  ];
+  fbSyncHandles();
+}
+
+/* ─── RENDER LOOP ──────────────────────────────── */
+function fbLoop() {
+  fbDraw();
+  requestAnimationFrame(fbLoop);
+}
+
+function fbDraw() {
+  if (corners.length < 4) return;
+  fbCtx.clearRect(0, 0, fbCanvas.width, fbCanvas.height);
+  var TL=corners[0], TR=corners[1], BR=corners[2], BL=corners[3];
+
+  /* Clip to the quad so bars don't spill outside the window */
+  fbCtx.save();
+  fbCtx.beginPath();
+  fbCtx.moveTo(TL.x,TL.y); fbCtx.lineTo(TR.x,TR.y);
+  fbCtx.lineTo(BR.x,BR.y); fbCtx.lineTo(BL.x,BL.y);
+  fbCtx.closePath(); fbCtx.clip();
+
+  fbDrawBars(TL, TR, BR, BL);
+  fbCtx.restore();
+
+  fbDrawRails(TL, TR, BR, BL);
+
+  /* Window boundary outline */
+  fbCtx.beginPath();
+  fbCtx.moveTo(TL.x,TL.y); fbCtx.lineTo(TR.x,TR.y);
+  fbCtx.lineTo(BR.x,BR.y); fbCtx.lineTo(BL.x,BL.y);
+  fbCtx.closePath();
+  fbCtx.strokeStyle = S.quadLine;
+  fbCtx.lineWidth   = 1.5;
+  fbCtx.stroke();
+}
+
+function lerp(a, b, t) { return { x: a.x+(b.x-a.x)*t, y: a.y+(b.y-a.y)*t }; }
+
+/* Horizontal bars using bilinear edge interpolation
+   Each bar is a quad p0-p1-p2-p3 perspective-correct */
+function fbDrawBars(TL, TR, BR, BL) {
+  var unitT = 1 / numBars;
+  var barT  = unitT * BAR_FRAC;
+
+  for (var i = 0; i < numBars; i++) {
+    var t0 = i * unitT, t1 = t0 + barT;
+    var p0 = lerp(TL, BL, t0);
+    var p1 = lerp(TR, BR, t0);
+    var p2 = lerp(TR, BR, t1);
+    var p3 = lerp(TL, BL, t1);
+
+    /* bar body */
+    fbCtx.beginPath();
+    fbCtx.moveTo(p0.x,p0.y); fbCtx.lineTo(p1.x,p1.y);
+    fbCtx.lineTo(p2.x,p2.y); fbCtx.lineTo(p3.x,p3.y);
+    fbCtx.closePath();
+    fbCtx.fillStyle = S.barFill; fbCtx.fill();
+
+    /* top-edge gloss — simulates light on 8 mm face */
+    fbCtx.beginPath();
+    fbCtx.moveTo(p0.x,p0.y); fbCtx.lineTo(p1.x,p1.y);
+    fbCtx.strokeStyle = S.barGloss; fbCtx.lineWidth = 2.5; fbCtx.stroke();
+
+    /* bottom-edge shadow — depth cue */
+    fbCtx.beginPath();
+    fbCtx.moveTo(p3.x,p3.y); fbCtx.lineTo(p2.x,p2.y);
+    fbCtx.strokeStyle = S.barShad; fbCtx.lineWidth = 1.5; fbCtx.stroke();
+  }
+}
+
+/* White aluminium side rails */
+function fbDrawRails(TL, TR, BR, BL) {
+  var avgW = ( Math.hypot(TR.x-TL.x, TR.y-TL.y)
+             + Math.hypot(BR.x-BL.x, BR.y-BL.y) ) / 2;
+  var rw = avgW * S.railFrac;
+  fbDrawOneRail(TL, BL, TR, BR, rw);
+  fbDrawOneRail(TR, BR, TL, BL, rw);
+}
+
+function fbDrawOneRail(o1, o2, i1, i2, rw) {
+  function ins(o, i) {
+    var dx=i.x-o.x, dy=i.y-o.y, l=Math.hypot(dx,dy)||1;
+    return { x: o.x+(dx/l)*rw, y: o.y+(dy/l)*rw };
+  }
+  var a = ins(o1, i1), b = ins(o2, i2);
+  fbCtx.beginPath();
+  fbCtx.moveTo(o1.x,o1.y); fbCtx.lineTo(a.x,a.y);
+  fbCtx.lineTo(b.x,b.y);   fbCtx.lineTo(o2.x,o2.y);
+  fbCtx.closePath();
+  fbCtx.fillStyle   = S.railFill; fbCtx.fill();
+  fbCtx.strokeStyle = S.railEdge; fbCtx.lineWidth = 1; fbCtx.stroke();
+}
+
+/* Fallback UI buttons */
+$('fb-reset').addEventListener('click', fbResetCorners);
+$('fb-detect').addEventListener('click', fbAutoDetect);
+$('bars-up').addEventListener('click', function(){
+  numBars = Math.min(20, numBars+1); $('bar-label').textContent = numBars;
+});
+$('bars-dn').addEventListener('click', function(){
+  numBars = Math.max(3,  numBars-1); $('bar-label').textContent = numBars;
+});
+$('wa-fb').addEventListener('click', openWA);
+
+
+/* ══════════════════════════════════════════════════
+   ██  SHARED UTILS
+══════════════════════════════════════════════════ */
+function openWA() {
+  window.open('https://wa.me/' + WA_NUMBER + '?text=' + WA_TEXT, '_blank');
+}
+
+function showErr() {
+  launch.style.display  = 'none';
+  errDiv.style.display  = 'flex';
+}
+
+})();
+</script>
+</body>
+</html>
